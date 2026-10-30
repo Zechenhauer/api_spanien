@@ -280,7 +280,6 @@
         let previousScores = {};
         let smartPollingInterval = null;
 
-        // Hilfsfunktion: Einheitliche Trainer-Ermittlung
         async function getRealCoach(teamId) {
             try {
                 const res = await fetch(`https://v3.football.api-sports.io/coachs?team=${teamId}`, { headers: { "x-apisports-key": apiKey } });
@@ -385,13 +384,11 @@
                     applicationServerKey: urlBase64ToUint8Array(publicVapidKey)
                 });
 
-                const p256dh = subscription.getKey('p256dh') ? btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh')))) : '';
-                const auth = subscription.getKey('auth') ? btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth')))) : '';
-
+                const subJson = subscription.toJSON();
                 await supabaseClient.from('push_subscriptions_barcelona').upsert({
-                    endpoint: subscription.endpoint,
-                    p256dh: p256dh,
-                    auth: auth
+                    endpoint: subJson.endpoint,
+                    p256dh: subJson.keys.p256dh,
+                    auth: subJson.keys.auth
                 }, { onConflict: 'endpoint' });
 
                 alert("Supabase Push-Alarm (Barcelona) erfolgreich aktiviert!");
@@ -536,7 +533,6 @@
 
                 let html = "";
 
-                // 1. Stammdaten & Stadion & Trainer
                 if (teamInfoData.response && teamInfoData.response.length > 0) {
                     const t = teamInfoData.response[0].team;
                     const v = teamInfoData.response[0].venue;
@@ -563,7 +559,6 @@
                     `;
                 }
 
-                // 3. Team-Saisondaten & Statistiken
                 if (statsData.response) {
                     const st = statsData.response;
                     let formStr = st.form || "N/V";
@@ -609,7 +604,6 @@
                     }
                 }
 
-                // 2. Kader & Spieler
                 if (squadData.response && squadData.response.length > 0) {
                     const players = squadData.response[0].players;
                     let grouped = { Goalkeeper: [], Defender: [], Midfielder: [], Attacker: [] };
@@ -632,7 +626,6 @@
                     }
                 }
 
-                // 6. Trophäen
                 if (trophiesData.response && trophiesData.response.length > 0) {
                     html += `<h3 style="font-size:1rem; color:var(--accent-color); margin:15px 0 8px 0; border-bottom:1px solid var(--border-color); padding-bottom:4px;">Trophäen & Titel</h3>`;
                     html += `<table><tr><th>Wettbewerb</th><th>Land / Region</th><th class="center">Titel</th><th class="center">Jahre</th></tr>`;
@@ -846,7 +839,6 @@
                     document.getElementById("modalStatus").textContent = `Status: ${match.fixture.status.long}`;
                     if(match.fixture.referee) document.getElementById("modalReferee").textContent = `👨‍⚖️ Schiedsrichter: ${match.fixture.referee}`;
 
-                    // Tore & Spielverlauf
                     let evHtml = "";
                     if (match.events) {
                         let hG = 0, aG = 0;
@@ -859,7 +851,6 @@
                     }
                     document.getElementById("modalEvents").innerHTML = evHtml !== "" ? evHtml : "Keine Tore.";
 
-                    // Formationen, Aufstellungen, Auswechslungen & Karten
                     let lineupsHtml = "Aufstellungen noch nicht verfügbar.";
                     if (lineupsData.response && lineupsData.response.length === 2) {
                         let lHome = lineupsData.response[0];
@@ -903,7 +894,6 @@
                     }
                     document.getElementById("modalLineups").innerHTML = lineupsHtml;
 
-                    // Statistiken
                     let statsHtml = "";
                     if (statsData.response && statsData.response.length === 2) {
                         let hStats = statsData.response[0].statistics;
