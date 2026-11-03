@@ -49,7 +49,7 @@
         .ticker-score { color: #ffffff; font-weight: bold; font-size: 0.9rem; background: #2b1819; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border-color); }
         @keyframes ticker-scroll { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-50%, 0, 0); } }
 
-        /* Tor-Alarm Banner */
+        /* Tor-Alarm / VAR Banner */
         #goalAlertBanner { display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #1a1011, #2b1214); border: 2px solid var(--accent-color); box-shadow: 0 10px 30px rgba(241,191,0,0.3); border-radius: 14px; padding: 18px 24px; z-index: 2000; width: 90%; max-width: 480px; text-align: center; animation: bounce-in 0.5s ease; cursor: pointer; }
         @keyframes bounce-in { 0% { transform: translate(-50%, -30px); opacity: 0; } 100% { transform: translate(-50%, 0); opacity: 1; } }
         .goal-alert-title { font-size: 1.2rem; font-weight: 900; color: var(--accent-color); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -135,7 +135,7 @@
     </style>
 </head>
 <body>
-    <!-- Live Tor-Alarm Popup -->
+    <!-- Live Tor-Alarm / VAR Popup -->
     <div id="goalAlertBanner" onclick="hideGoalAlert()">
         <div class="goal-alert-title" id="goalAlertTeam">🇪🇸 ¡Gol!</div>
         <div class="goal-alert-scorer" id="goalAlertScorer">Torschütze & Minute</div>
@@ -273,7 +273,7 @@
         let globalTopScorers = [];
         let globalTopAssists = [];
         let globalYellowCards = [];
-        let previousScores = {};
+        let sentGoalsCache = {};
         let smartPollingInterval = null;
 
         async function getRealCoach(teamId) {
@@ -292,6 +292,7 @@
 
         async function init() {
             await checkApiStatus();
+            await loadSentGoalsCache();
             await loadRounds();
             loadTable();
             loadTopScorers();
@@ -327,6 +328,78 @@
                 alert("Admin-Modus erfolgreich aktiviert!");
             } else if (enteredPin !== null) {
                 alert("Falsche PIN!");
+            }
+        }
+
+        async function loadSentGoalsCache() {
+            try {
+                const { data } = await supabaseClient.from('sent_goals_barcelona').select('*');
+                if (data) {
+                    data.forEach(row => {
+                        sentGoalsCache[row.match_id] = { home: row.home_score, away: row.away_score };
+                    });
+                }
+            } catch (e) {}
+        }
+
+        async function recordGoalAndNotify(matchId, home, away, homeScore, awayScore, latestScorer, scoringTeam) {
+            sentGoalsCache[matchId] = { home: homeScore, away: awayScore };
+            
+            let cleanPlayer = latestScorer ? latestScorer.replace(/⚽\s*/, '').replace(/\(\d+['']\)/, '').trim() : '';
+            let minStr = latestScorer && latestScorer.match(/\(\d+['']\)/) ? ` ${latestScorer.match(/\(\d+['']\)[0]*/)[0]}` : '';
+
+            try {
+                await supabaseClient.from('sent_goals_barcelona').upsert({
+                    match_id: String(matchId),
+                    home_score: homeScore,
+                    away_score: awayScore,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'match_id' });
+
+                await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        table: 'push_subscriptions_barcelona',
+                        title: `🇪🇸 ¡Gol! für ${scoringTeam}!`,
+                        body: `Stand: ${homeScore}:${awayScore}\n${home} : ${away}${cleanPlayer ? '\nSchütze: ' + cleanPlayer + minStr : ''}`
+                    })
+                });
+            } catch (e) {
+                console.error("Fehler beim Push / Record:", e);
+            }
+        }
+
+        // VAR-Rücknahme Funktion für La Liga
+        async function recordVarCorrectionAndNotify(matchId, home, away, homeScore, awayScore) {
+            sentGoalsCache[matchId] = { home: homeScore, away: awayScore };
+
+            let pushTitle = `⚠️ La Liga: Tor-Korrektur (VAR)!`;
+            let pushBody = `Das Tor wurde nach Videobeweis zurückgenommen!\nNeuer Spielstand: ${home} - ${away} (${homeScore}:${awayScore})`;
+
+            showVarCorrectionAlert(`${home} : ${away} (${homeScore}:${awayScore})`);
+
+            try {
+                await supabaseClient.from('sent_goals_barcelona').upsert({
+                    match_id: String(matchId),
+                    home_score: homeScore,
+                    away_score: awayScore,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'match_id' });
+
+                await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        table: 'push_subscriptions_barcelona',
+                        title: pushTitle,
+                        body: pushBody
+                    })
+                });
+            } catch (e) {
+                console.error("Fehler beim La Liga VAR-Push:", e);
             }
         }
 
@@ -394,58 +467,23 @@
             }
         }
 
-        // Korrigierter Push-Dienst mit sent_goals_barcelona & passendem Schema
-        async function checkAllGoalsAndNotify(home, away, hScore, aScore, latestScorer, matchId, scoringTeam) {
-            if (!latestScorer || latestScorer.includes("Tor") || latestScorer.trim() === "⚽" || latestScorer.trim() === "Gol" || latestScorer.trim() === "Goal") return;
-
-            let uniqueGoalId = `esp_${matchId}_${hScore}:${aScore}_${latestScorer}`;
-            
-            let cleanPlayer = latestScorer.replace(/⚽\s*/, '').replace(/\(\d+['']\)/, '').replace('(Pen)', '').replace('(ET)', '').trim();
-            let minStr = latestScorer.match(/\(\d+['']\)/) ? ` ${latestScorer.match(/\(\d+['']\)/)[0]}` : '';
-
-            try {
-                let { data: existing, error: checkError } = await supabaseClient
-                    .from('sent_goals_barcelona')
-                    .select('goal_id')
-                    .eq('goal_id', uniqueGoalId)
-                    .maybeSingle();
-
-                if (!existing && !checkError) {
-                    let { error: insertError } = await supabaseClient
-                        .from('sent_goals_barcelona')
-                        .insert([{ 
-                            goal_id: uniqueGoalId,
-                            match_id: `esp_${matchId}`,
-                            home_score: hScore,
-                            away_score: aScore
-                        }]);
-
-                    if (!insertError) {
-                        await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
-                            method: 'POST',
-                            mode: 'cors',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                table: 'push_subscriptions_barcelona',
-                                title: `🇪🇸 ¡GOL! für ${scoringTeam} zum ${hScore}:${aScore}`,
-                                body: `Torschütze: ${cleanPlayer}${minStr}\n${home} : ${away} (${hScore}:${aScore})`
-                            })
-                        });
-                    } else {
-                        console.error("Supabase Insert-Fehler:", insertError);
-                    }
-                }
-            } catch (e) {
-                console.error("Fehler beim Barcelona Tor-Cache & Push:", e);
-            }
-        }
-
-        function showGoalAlert(teamName, scorerInfo, matchInfo, matchId) {
-            document.getElementById("goalAlertTeam").textContent = `🇪🇸 ¡Gol für ${teamName}!`;
+        function showGoalAlert(teamName, scorerInfo, matchInfo) {
+            const banner = document.getElementById("goalAlertBanner");
+            banner.style.background = "linear-gradient(135deg, #1a1011, #2b1214)";
+            document.getElementById("goalAlertTeam").textContent = `🇪🇸 ¡Gol de ${teamName}!`;
             document.getElementById("goalAlertScorer").textContent = scorerInfo;
             document.getElementById("goalAlertMatch").textContent = matchInfo;
-            document.getElementById("goalAlertBanner").style.display = "block";
-            
+            banner.style.display = "block";
+            setTimeout(() => { hideGoalAlert(); }, 10000);
+        }
+
+        function showVarCorrectionAlert(matchInfo) {
+            const banner = document.getElementById("goalAlertBanner");
+            banner.style.background = "linear-gradient(135deg, #36280c, #634d1e)";
+            document.getElementById("goalAlertTeam").textContent = "⚠️ La Liga: Tor-Korrektur (VAR)!";
+            document.getElementById("goalAlertScorer").textContent = "Das Tor wurde nach Videobeweis zurückgenommen!";
+            document.getElementById("goalAlertMatch").textContent = `Neuer Spielstand: ${matchInfo}`;
+            banner.style.display = "block";
             setTimeout(() => { hideGoalAlert(); }, 10000);
         }
 
@@ -784,19 +822,24 @@
                         let isLive = ["1H", "2H", "ET", "P", "HT"].includes(m.fixture.status.short);
                         if (isLive) hasLiveGames = true;
 
-                        if (previousScores[fixtureId] !== undefined) {
-                            if (goalsHome > previousScores[fixtureId].home || goalsAway > previousScores[fixtureId].away) {
-                                let scoringTeam = goalsHome > previousScores[fixtureId].home ? home.name : away.name;
+                        let cachedScore = sentGoalsCache[fixtureId];
+                        if (!cachedScore) {
+                            sentGoalsCache[fixtureId] = { home: goalsHome, away: goalsAway };
+                        } else {
+                            // 1. Fall: Normales Tor (Spielstand steigt)
+                            if (goalsHome > cachedScore.home || goalsAway > cachedScore.away) {
+                                let scoringTeam = goalsHome > cachedScore.home ? home.name : away.name;
                                 let latestGoal = events.filter(ev => ev.type === 'Goal').pop();
-                                let scorerText = latestGoal ? `⚽ ${latestGoal.player.name} (${latestGoal.time.elapsed}')` : "⚽ Gol";
+                                let scorerText = latestGoal ? `${latestGoal.player.name} (${latestGoal.time.elapsed}. Min)` : "Gol";
                                 
-                                showGoalAlert(scoringTeam, latestGoal ? `${latestGoal.player.name} (${latestGoal.time.elapsed}. Min)` : "Gol", `${home.name} - ${away.name}`, fixtureId);
-                                
-                                // Automatischer Push & Datenbank-Eintrag
-                                checkAllGoalsAndNotify(home.name, away.name, goalsHome, goalsAway, scorerText, fixtureId, scoringTeam);
+                                showGoalAlert(scoringTeam, scorerText, `${home.name} - ${away.name}`);
+                                recordGoalAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway, latestGoal ? `⚽ ${latestGoal.player.name} (${latestGoal.time.elapsed}')` : '', scoringTeam);
+                            }
+                            // 2. Fall: VAR-Rücknahme (Spielstand sinkt)
+                            else if (goalsHome < cachedScore.home || goalsAway < cachedScore.away) {
+                                recordVarCorrectionAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway);
                             }
                         }
-                        previousScores[fixtureId] = { home: goalsHome, away: goalsAway };
 
                         let displayHome = m.goals.home !== null ? m.goals.home : "-";
                         let displayAway = m.goals.away !== null ? m.goals.away : "-";
