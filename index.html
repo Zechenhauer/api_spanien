@@ -362,8 +362,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         table: 'push_subscriptions_barcelona',
-                        title: `🇪🇸 ¡Gol! für ${scoringTeam}!`,
-                        body: `Stand: ${homeScore}:${awayScore}\n${home} : ${away}${cleanPlayer ? '\nSchütze: ' + cleanPlayer + minStr : ''}`
+                        title: `🇪🇸 GOAL! für ${scoringTeam}!`,
+                        body: `Torschütze: ${cleanPlayer}${minStr}\n${home} : ${away} (${homeScore}:${awayScore})`
                     })
                 });
             } catch (e) {
