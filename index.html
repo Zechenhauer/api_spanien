@@ -30,7 +30,9 @@
         .container { width: 100%; max-width: 950px; }
 
         header { text-align: center; margin-bottom: 20px; border-bottom: 3px solid var(--liga-red); padding-bottom: 12px; }
-        h1 { font-size: 2.2rem; color: var(--accent-color); margin-bottom: 5px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .header-title-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 5px; }
+        .league-logo { width: 65px; height: 35px; object-fit: contain; border-radius: 4px; border: 1px solid var(--border-color); background: #151010; padding: 2px; }
+        h1 { font-size: 2.2rem; color: var(--accent-color); text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
         .subtitle { color: var(--text-muted); font-size: 0.95rem; }
         .author-sub { color: var(--liga-red); font-size: 0.8rem; font-weight: bold; margin-top: 4px; letter-spacing: 0.5px; text-transform: uppercase; background: rgba(170, 21, 27, 0.15); display: inline-block; padding: 2px 10px; border-radius: 4px; border: 1px solid var(--liga-red); }
 
@@ -155,9 +157,15 @@
         </div>
 
         <header>
-            <h1>La Liga PRO Dashboard</h1>
+            <div class="header-title-row">
+                <img src="https://media.api-sports.io/football/leagues/140.png" alt="La Liga Logo" class="league-logo">
+                <h1>La Liga PRO Dashboard</h1>
+            </div>
             <div class="subtitle">Live, Team-Statistiken, Aufstellungen & Bestenlisten (Saison 2026/27)</div>
-            <div class="author-sub">Webmanagement Jürgen Schützendorf</div>
+            <div class="author-sub">
+                <img src="https://lhusylpjnujlqomougmg.supabase.co/storage/v1/object/public/Bilder/Juergen%20Schuetzendorf.png" alt="Jürgen Schützendorf" style="width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 1px solid var(--accent-color); vertical-align: middle;">
+                <span>Webmanagement Jürgen Schützendorf</span>
+            </div>
         </header>
 
         <div id="apiStatusBanner" class="status-box">
@@ -276,6 +284,18 @@
         let sentGoalsCache = {};
         let smartPollingInterval = null;
 
+        // Globaler Spieler-Foto-Cache
+        let playerPhotoCache = {};
+
+        async function fetchAndCachePlayerPhoto(playerId, playerName, teamId) {
+            if (!playerId) return '';
+            if (playerPhotoCache[playerId]) return playerPhotoCache[playerId];
+
+            let photoUrl = `https://media.api-sports.io/football/players/${playerId}.png`;
+            playerPhotoCache[playerId] = photoUrl;
+            return photoUrl;
+        }
+
         async function getRealCoach(teamId) {
             try {
                 const res = await fetch(`https://v3.football.api-sports.io/coachs?team=${teamId}`, { headers: { "x-apisports-key": apiKey } });
@@ -346,7 +366,7 @@
             sentGoalsCache[matchId] = { home: homeScore, away: awayScore };
             
             let cleanPlayer = latestScorer ? latestScorer.replace(/⚽\s*/, '').replace(/\(\d+['']\)/, '').trim() : '';
-            let minStr = latestScorer && latestScorer.match(/\(\d+['']\)/) ? ` ${latestScorer.match(/\(\d+['']\)[0]*/)[0]}` : '';
+            let minStr = latestScorer && latestScorer.match(/\(\d+['']\)/) ? ` ${latestScorer.match(/\(\d+['']\)/)[0]}` : '';
 
             try {
                 await supabaseClient.from('sent_goals_barcelona').upsert({
@@ -371,7 +391,6 @@
             }
         }
 
-        // VAR-Rücknahme Funktion für La Liga
         async function recordVarCorrectionAndNotify(matchId, home, away, homeScore, awayScore) {
             sentGoalsCache[matchId] = { home: homeScore, away: awayScore };
 
@@ -489,16 +508,17 @@
 
         function hideGoalAlert() { document.getElementById("goalAlertBanner").style.display = "none"; }
 
+        // Intelligentes Smart Polling (3 Minuten Standby / 60 Sekunden Live-Modus)
         function manageSmartPolling(hasLiveGames) {
-            if (hasLiveGames && !smartPollingInterval) {
-                smartPollingInterval = setInterval(() => {
-                    if (currentMatchday) loadMatchday(currentMatchday, true);
-                    loadTable();
-                }, 60000);
-            } else if (!hasLiveGames && smartPollingInterval) {
+            const intervalTime = hasLiveGames ? 60000 : 180000;
+            if (smartPollingInterval) {
                 clearInterval(smartPollingInterval);
                 smartPollingInterval = null;
             }
+            smartPollingInterval = setInterval(() => {
+                if (currentMatchday) loadMatchday(currentMatchday, true);
+                loadTable();
+            }, intervalTime);
         }
 
         async function loadTopScorers() {
@@ -516,8 +536,14 @@
                         let isBarca = teamName.includes("Barcelona");
                         let isReal = teamName.includes("Real Madrid");
                         let highlightClass = isBarca ? 'barca-highlight' : (isReal ? 'real-highlight' : '');
-                        html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${highlightClass}">
-                            <span><b>${i+1}.</b> ${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                        let photoUrl = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, p.statistics[0].team.id);
+
+                        html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:4px 0; border-bottom:1px solid var(--border-color);" class="${highlightClass}">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <b>${i+1}.</b>
+                                <img src="${photoUrl}" style="width:22px; height:22px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'">
+                                <span>${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            </div>
                             <span style="background:#21191a; padding:1px 6px; border-radius:4px; font-weight:bold; color:var(--accent-color);">${goals} Tore</span>
                         </div>`;
                     }
@@ -541,8 +567,14 @@
                         let isBarca = teamName.includes("Barcelona");
                         let isReal = teamName.includes("Real Madrid");
                         let highlightClass = isBarca ? 'barca-highlight' : (isReal ? 'real-highlight' : '');
-                        html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${highlightClass}">
-                            <span><b>${i+1}.</b> ${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                        let photoUrl = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, p.statistics[0].team.id);
+
+                        html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:4px 0; border-bottom:1px solid var(--border-color);" class="${highlightClass}">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <b>${i+1}.</b>
+                                <img src="${photoUrl}" style="width:22px; height:22px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'">
+                                <span>${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            </div>
                             <span style="background:#21191a; padding:1px 6px; border-radius:4px; font-weight:bold; color:var(--accent-color);">${assists} Assists</span>
                         </div>`;
                     }
@@ -566,8 +598,14 @@
                         let isBarca = teamName.includes("Barcelona");
                         let isReal = teamName.includes("Real Madrid");
                         let highlightClass = isBarca ? 'barca-highlight' : (isReal ? 'real-highlight' : '');
-                        html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${highlightClass}">
-                            <span><b>${i+1}.</b> ${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                        let photoUrl = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, p.statistics[0].team.id);
+
+                        html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:4px 0; border-bottom:1px solid var(--border-color);" class="${highlightClass}">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <b>${i+1}.</b>
+                                <img src="${photoUrl}" style="width:22px; height:22px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'">
+                                <span>${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            </div>
                             <span style="background:#21191a; padding:1px 6px; border-radius:4px; font-weight:bold; color:#f0883e;">🟨 ${cards}</span>
                         </div>`;
                     }
@@ -682,10 +720,14 @@
                     for (let pos in grouped) {
                         if (grouped[pos].length > 0) {
                             html += `<div style="font-size:0.85rem; font-weight:bold; color:var(--text-muted); margin-top:8px;">${posNames[pos]}</div>`;
-                            html += `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; margin-bottom:10px;">`;
-                            grouped[pos].forEach(pl => {
-                                html += `<span style="background:#1a1213; border:1px solid var(--border-color); padding:3px 8px; border-radius:4px; font-size:0.8rem;">#${pl.number || '-'} ${pl.name} (${pl.age || '-'} J.)</span>`;
-                            });
+                            html += `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; margin-bottom:10px;">`;
+                            for (let pl of grouped[pos]) {
+                                let photoUrl = await fetchAndCachePlayerPhoto(pl.id, pl.name, teamId);
+                                html += `<div style="display:flex; align-items:center; gap:6px; background:#1a1213; border:1px solid var(--border-color); padding:4px 8px; border-radius:6px; font-size:0.8rem;">
+                                    <img src="${photoUrl}" style="width:20px; height:20px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${pl.id}.png'">
+                                    <span>#${pl.id ? (pl.number || '-') : '-'} ${pl.name} (${pl.age || '-'} J.)</span>
+                                </div>`;
+                            }
                             html += `</div>`;
                         }
                     }
@@ -707,42 +749,69 @@
             }
         }
 
-        function openTopScorersModal() {
+        async function openTopScorersModal() {
             document.getElementById("scorersModal").style.display = "flex";
             let html = `<table><tr><th>#</th><th>Spieler</th><th>Team</th><th class="center">Tore</th><th class="center">Elfm.</th></tr>`;
-            globalTopScorers.forEach((p, index) => {
+            for (let index = 0; index < globalTopScorers.length; index++) {
+                let p = globalTopScorers[index];
                 let stats = p.statistics[0];
                 let isBarca = stats.team.name.includes("Barcelona");
                 let isReal = stats.team.name.includes("Real Madrid");
                 let rowClass = isBarca ? 'barca-team' : (isReal ? 'real-team' : '');
-                html += `<tr class="${rowClass}"><td><b>${index+1}</b></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${p.player.photo}" style="width:20px; height:20px; border-radius:50%; object-fit:cover;"><span>${p.player.name}</span></div></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td><td class="center"><b>${stats.goals.total ?? 0}</b></td><td class="center">${stats.goals.penalty ?? 0}</td></tr>`;
-            });
+                let photoUrl = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, stats.team.id);
+
+                html += `<tr class="${rowClass}">
+                    <td><b>${index+1}</b></td>
+                    <td><div style="display:flex; align-items:center; gap:8px;"><img src="${photoUrl}" style="width:24px; height:24px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'"><span>${p.player.name}</span></div></td>
+                    <td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td>
+                    <td class="center"><b>${stats.goals.total ?? 0}</b></td>
+                    <td class="center">${stats.goals.penalty ?? 0}</td>
+                </tr>`;
+            }
             document.getElementById("fullScorersContainer").innerHTML = html + `</table>`;
         }
 
-        function openTopAssistsModal() {
+        async function openTopAssistsModal() {
             document.getElementById("assistsModal").style.display = "flex";
             let html = `<table><tr><th>#</th><th>Spieler</th><th>Team</th><th class="center">Vorlagen</th></tr>`;
-            globalTopAssists.forEach((p, index) => {
+            for (let index = 0; index < globalTopAssists.length; index++) {
+                let p = globalTopAssists[index];
                 let stats = p.statistics[0];
                 let isBarca = stats.team.name.includes("Barcelona");
                 let isReal = stats.team.name.includes("Real Madrid");
                 let rowClass = isBarca ? 'barca-team' : (isReal ? 'real-team' : '');
-                html += `<tr class="${rowClass}"><td><b>${index+1}</b></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${p.player.photo}" style="width:20px; height:20px; border-radius:50%; object-fit:cover;"><span>${p.player.name}</span></div></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td><td class="center"><b>${stats.goals.assists ?? 0}</b></td></tr>`;
-            });
+                let photoUrl = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, stats.team.id);
+
+                html += `<tr class="${rowClass}">
+                    <td><b>${index+1}</b></td>
+                    <td><div style="display:flex; align-items:center; gap:8px;"><img src="${photoUrl}" style="width:24px; height:24px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'"><span>${p.player.name}</span></div></td>
+                    <td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td>
+                    <td class="center"><b>${stats.goals.assists ?? 0}</b></td>
+                </tr>`;
+            }
             document.getElementById("fullAssistsContainer").innerHTML = html + `</table>`;
         }
 
-        function openYellowCardsModal() {
+        async function openYellowCardsModal() {
             document.getElementById("yellowCardsModal").style.display = "flex";
             let html = `<table><tr><th>#</th><th>Spieler</th><th>Team</th><th class="center">Gelb</th><th class="center">Gelb-Rot</th><th class="center">Rot</th></tr>`;
-            globalYellowCards.forEach((p, index) => {
+            for (let index = 0; index < globalYellowCards.length; index++) {
+                let p = globalYellowCards[index];
                 let stats = p.statistics[0];
                 let isBarca = stats.team.name.includes("Barcelona");
                 let isReal = stats.team.name.includes("Real Madrid");
                 let rowClass = isBarca ? 'barca-team' : (isReal ? 'real-team' : '');
-                html += `<tr class="${rowClass}"><td><b>${index+1}</b></td><td><span>${p.player.name}</span></td><td><span>${stats.team.name}</span></td><td class="center"><b>${stats.cards.yellow ?? 0}</b></td><td class="center">${stats.cards.yellowred ?? 0}</td><td class="center">${stats.cards.red ?? 0}</td></tr>`;
-            });
+                let photoUrl = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, stats.team.id);
+
+                html += `<tr class="${rowClass}">
+                    <td><b>${index+1}</b></td>
+                    <td><div style="display:flex; align-items:center; gap:8px;"><img src="${photoUrl}" style="width:24px; height:24px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'"><span>${p.player.name}</span></div></td>
+                    <td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td>
+                    <td class="center"><b>${stats.cards.yellow ?? 0}</b></td>
+                    <td class="center">${stats.cards.yellowred ?? 0}</td>
+                    <td class="center">${stats.cards.red ?? 0}</td>
+                </tr>`;
+            }
             document.getElementById("fullYellowCardsContainer").innerHTML = html + `</table>`;
         }
 
@@ -812,7 +881,7 @@
 
                     const resolvedMatches = await Promise.all(matchPromises);
 
-                    resolvedMatches.forEach(({ match: m, events }) => {
+                    for (const { match: m, events } of resolvedMatches) {
                         const fixtureId = m.fixture.id;
                         const home = m.teams.home;
                         const away = m.teams.away;
@@ -826,7 +895,6 @@
                         if (!cachedScore) {
                             sentGoalsCache[fixtureId] = { home: goalsHome, away: goalsAway };
                         } else {
-                            // 1. Fall: Normales Tor (Spielstand steigt)
                             if (goalsHome > cachedScore.home || goalsAway > cachedScore.away) {
                                 let scoringTeam = goalsHome > cachedScore.home ? home.name : away.name;
                                 let latestGoal = events.filter(ev => ev.type === 'Goal').pop();
@@ -835,7 +903,6 @@
                                 showGoalAlert(scoringTeam, scorerText, `${home.name} - ${away.name}`);
                                 recordGoalAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway, latestGoal ? `⚽ ${latestGoal.player.name} (${latestGoal.time.elapsed}')` : '', scoringTeam);
                             }
-                            // 2. Fall: VAR-Rücknahme (Spielstand sinkt)
                             else if (goalsHome < cachedScore.home || goalsAway < cachedScore.away) {
                                 recordVarCorrectionAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway);
                             }
@@ -858,10 +925,15 @@
                         if (goalEvents.length > 0) {
                             scorersHtml = `<div class="match-scorers-preview">`;
                             let cH = 0, cA = 0;
-                            goalEvents.forEach(ge => {
+                            for (let ge of goalEvents) {
                                 if (ge.team.id === home.id) cH++; else cA++;
-                                scorersHtml += `<div class="scorer-tag"><span class="scorer-score-badge">${cH}:${cA}</span><span>⚽ ${ge.time.elapsed}' ${ge.player.name}</span></div>`;
-                            });
+                                let pPhoto = await fetchAndCachePlayerPhoto(ge.player.id, ge.player.name, ge.team.id);
+                                scorersHtml += `<div class="scorer-tag">
+                                    <span class="scorer-score-badge">${cH}:${cA}</span>
+                                    <img src="${pPhoto}" style="width:18px; height:18px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color); margin-left:4px;" onerror="this.src='https://media.api-sports.io/football/players/${ge.player.id}.png'">
+                                    <span>⚽ ${ge.time.elapsed}' ${ge.player.name}</span>
+                                </div>`;
+                            }
                             scorersHtml += `</div>`;
                         }
 
@@ -871,7 +943,7 @@
                         itemDiv.onclick = () => openMatchDetails(m.fixture.id);
                         itemDiv.innerHTML = `<div class="match-main-row"><div class="team home"><span>${home.name}</span><img src="${home.logo}"></div><div class="score-box"><div class="score">${displayHome} : ${displayAway}</div><span class="match-info-sub">${dateDisplay}</span></div><div class="team"><img src="${away.logo}"><span>${away.name}</span></div></div>${scorersHtml}`;
                         container.appendChild(itemDiv);
-                    });
+                    }
                     document.getElementById('tickerTrack').innerHTML = tickerHtml + tickerHtml;
 
                     manageSmartPolling(hasLiveGames);
@@ -917,12 +989,20 @@
                     let evHtml = "";
                     if (match.events) {
                         let hG = 0, aG = 0;
-                        match.events.forEach(ev => {
+                        for (let ev of match.events) {
                             if (ev.type === 'Goal') {
                                 if (ev.team.id === home.id) hG++; else aG++;
-                                evHtml += `<div class="event-item"><div style="display:flex; align-items:center; gap:10px;"><span class="event-time">${ev.time.elapsed}'</span><span>⚽ <b>${ev.player.name}</b> (${ev.team.name})</span></div><span class="event-score">${hG}:${aG}</span></div>`;
+                                let pPhoto = await fetchAndCachePlayerPhoto(ev.player.id, ev.player.name, ev.team.id);
+                                evHtml += `<div class="event-item">
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                        <span class="event-time">${ev.time.elapsed}'</span>
+                                        <img src="${pPhoto}" style="width:20px; height:20px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);" onerror="this.src='https://media.api-sports.io/football/players/${ev.player.id}.png'">
+                                        <span>⚽ <b>${ev.player.name}</b> (${ev.team.name})</span>
+                                    </div>
+                                    <span class="event-score">${hG}:${aG}</span>
+                                </div>`;
                             }
-                        });
+                        }
                     }
                     document.getElementById("modalEvents").innerHTML = evHtml !== "" ? evHtml : "Keine Tore.";
 
@@ -931,9 +1011,19 @@
                         let lHome = lineupsData.response[0];
                         let lAway = lineupsData.response[1];
 
-                        function formatTeamDetails(lineupObj, teamObj, coachName) {
-                            let start11 = lineupObj.startXI.map(p => `${p.player.name} (${p.player.pos})`).join(", ");
-                            let subs = lineupObj.substitutes.map(p => `${p.player.name}`).join(", ");
+                        async function formatTeamDetails(lineupObj, teamObj, coachName) {
+                            let startXiHtml = "";
+                            for (let p of lineupObj.startXI) {
+                                let pPhoto = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, teamObj.id);
+                                startXiHtml += `<span style="display:inline-flex; align-items:center; gap:4px; margin:2px 4px; background:#151010; padding:2px 6px; border-radius:4px; border:1px solid var(--border-color);"><img src="${pPhoto}" style="width:16px; height:16px; border-radius:50%; object-fit:cover;" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'">${p.player.name} (${p.player.pos})</span>`;
+                            }
+
+                            let subsHtml = "";
+                            for (let p of lineupObj.substitutes) {
+                                let pPhoto = await fetchAndCachePlayerPhoto(p.player.id, p.player.name, teamObj.id);
+                                subsHtml += `<span style="display:inline-flex; align-items:center; gap:4px; margin:2px 4px; background:#151010; padding:2px 6px; border-radius:4px; border:1px solid var(--border-color);"><img src="${pPhoto}" style="width:16px; height:16px; border-radius:50%; object-fit:cover;" onerror="this.src='https://media.api-sports.io/football/players/${p.player.id}.png'">${p.player.name}</span>`;
+                            }
+
                             let teamEvents = (match.events || []).filter(ev => ev.team.id === teamObj.id);
                             let subsEvents = teamEvents.filter(ev => ev.type === 'subst').map(ev => `<div style="font-size:0.8rem; color:var(--text-muted);">🔄 ${ev.time.elapsed}' Ein: ${ev.player.name} | Aus: ${ev.assist.name}</div>`).join("");
                             let cardsEvents = teamEvents.filter(ev => ev.type === 'Card').map(ev => {
@@ -949,18 +1039,21 @@
                                         <img src="${teamObj.logo}" style="width:18px; height:18px; object-fit:contain;"> ${teamObj.name}
                                     </div>
                                     <div style="font-size:0.85rem; margin-bottom:6px;">Formation: <b>${lineupObj.formation || 'N/V'}</b> | Trainer: ${finalCoach}</div>
-                                    <div style="font-size:0.82rem; margin-bottom:6px; color:var(--text-muted);"><b>Startelf:</b> ${start11}</div>
-                                    <div style="font-size:0.82rem; margin-bottom:8px; color:var(--text-muted);"><b>Bank:</b> ${subs}</div>
+                                    <div style="font-size:0.82rem; margin-bottom:6px; color:var(--text-muted);"><b>Startelf:</b><br>${startXiHtml}</div>
+                                    <div style="font-size:0.82rem; margin-bottom:8px; color:var(--text-muted);"><b>Bank:</b><br>${subsHtml}</div>
                                     ${subsEvents ? `<div style="margin-top:6px; border-top:1px dashed var(--border-color); padding-top:4px;"><b>Auswechslungen:</b>${subsEvents}</div>` : ''}
                                     ${cardsEvents ? `<div style="margin-top:6px; border-top:1px dashed var(--border-color); padding-top:4px;"><b>Karten:</b>${cardsEvents}</div>` : ''}
                                 </div>
                             `;
                         }
 
+                        let homeLineupCard = await formatTeamDetails(lHome, home, realHomeCoach);
+                        let awayLineupCard = await formatTeamDetails(lAway, away, realAwayCoach);
+
                         lineupsHtml = `<div style="display:flex; flex-direction:column; gap:15px;">
                             <div style="display:flex; gap:15px; flex-wrap:wrap;">
-                                ${formatTeamDetails(lHome, home, realHomeCoach)}
-                                ${formatTeamDetails(lAway, away, realAwayCoach)}
+                                ${homeLineupCard}
+                                ${awayLineupCard}
                             </div>
                         </div>`;
                     }
