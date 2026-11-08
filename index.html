@@ -1086,41 +1086,48 @@
         }
 
         async function loadTable() {
-            const container = document.getElementById("tableContainer");
-            try {
-                const res = await fetch(`https://v3.football.api-sports.io/standings?league=${leagueId}&season=${season}`, { headers: { "x-apisports-key": apiKey } });
-                const data = await res.json();
-                if(data.response && data.response.length > 0) {
-                    const standings = data.response[0].league.standings[0];
-                    let html = `<table><tr><th>#</th><th>Team</th><th class="center">Sp</th><th class="center">Tore</th><th class="right">Pkt</th></tr>`;
-                    
-                    let top3Html = "";
-                    for(let i = 0; i < Math.min(3, standings.length); i++) {
-                        let s = standings[i];
-                        let isBarca = s.team.name.includes("Barcelona");
-                        let isReal = s.team.name.includes("Real Madrid");
-                        let topClass = isBarca ? 'barca-highlight' : (isReal ? 'real-highlight' : '');
-                        top3Html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${topClass}"><div style="display:flex; align-items:center; gap:6px;"><b>${s.rank}.</b><img src="${s.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${s.team.name}</span></div><span style="background:#21191a; padding:1px 6px; border-radius:4px; font-weight:bold; color:var(--accent-color);">${s.points} Pkt</span></div>`;
-                    }
-                    document.getElementById("top3TableWidget").innerHTML = top3Html;
-
-                    standings.forEach(s => {
-                        let zoneClass = s.rank <= 4 ? "cl-zone" : (s.rank <= 6 ? "el-zone" : (s.rank >= 18 ? "reflux-zone" : ""));
-                        if (s.team.name.includes("Barcelona")) zoneClass += " barca-team";
-                        if (s.team.name.includes("Real Madrid")) zoneClass += " real-team";
-                        
-                        html += `<tr class="table-row ${zoneClass}" onclick="openTeamStats(${s.team.id}, '${s.team.name}', '${s.team.logo}')">
-                            <td><b>${s.rank}</b></td>
-                            <td><div class="table-team"><img src="${s.team.logo}"><span>${s.team.name}</span></div></td>
-                            <td class="center">${s.all.played}</td>
-                            <td class="center">${s.all.goals.for}:${s.all.goals.against}</td>
-                            <td class="right"><b>${s.points}</b></td>
-                        </tr>`;
-                    });
-                    container.innerHTML = html + `</table>`;
+        const container = document.getElementById("tableContainer");
+        try {
+            const res = await fetch(`https://v3.football.api-sports.io/standings?league=${leagueId}&season=${season}`, { headers: { "x-apisports-key": apiKey } });
+            const data = await res.json();
+            if(data.response && data.response.length > 0) {
+                const standings = data.response[0].league.standings[0];
+                
+                // Erweiterte Kopfzeile mit S, U, N
+                let html = `<table><tr><th>#</th><th>Team</th><th class="center">Sp</th><th class="center">S</th><th class="center">U</th><th class="center">N</th><th class="center">Tore</th><th class="center">Diff</th><th class="right">Pkt</th></tr>`;
+                
+                let top3Html = "";
+                for(let i = 0; i < Math.min(3, standings.length); i++) {
+                    let s = standings[i];
+                    let isBayern = s.team.name.includes("Bayern");
+                    top3Html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${isBayern ? 'bayern-highlight' : ''}"><div style="display:flex; align-items:center; gap:6px;"><b>${s.rank}.</b><img src="${s.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${s.team.name}</span></div><span style="background:#21262d; padding:1px 6px; border-radius:4px; font-weight:bold; color:var(--accent-color);">${s.points} Pkt</span></div>`;
                 }
-            } catch(e) {}
-        }
+                document.getElementById("top3TableWidget").innerHTML = top3Html;
+
+                standings.forEach(s => {
+                    let zoneClass = s.rank <= 4 ? "cl-zone" : (s.rank <= 6 ? "el-zone" : (s.rank === 16 ? "relegation-zone" : (s.rank >= 17 ? "reflux-zone" : "")));
+                    if (s.team.name.includes("Bayern")) zoneClass += " bayern-team";
+                    
+                    let diffValue = s.goalsDiff !== undefined ? s.goalsDiff : (s.all.goals.for - s.all.goals.against);
+                    let diffFormatted = diffValue > 0 ? '+' + diffValue : diffValue;
+                    
+                    // Zeilendaten passend zur neuen Kopfzeile
+                    html += `<tr class="table-row ${zoneClass}" onclick="openTeamStats(${s.team.id}, '${s.team.name}', '${s.team.logo}')">
+                        <td><b>${s.rank}</b></td>
+                        <td><div class="table-team"><img src="${s.team.logo}"><span>${s.team.name}</span></div></td>
+                        <td class="center">${s.all.played}</td>
+                        <td class="center">${s.all.win}</td>
+                        <td class="center">${s.all.draw}</td>
+                        <td class="center">${s.all.lose}</td>
+                        <td class="center">${s.all.goals.for}:${s.all.goals.against}</td>
+                        <td class="center">${diffFormatted}</td>
+                        <td class="right"><b>${s.points}</b></td>
+                    </tr>`;
+                });
+                container.innerHTML = html + `</table>`;
+            }
+        } catch(e) {}
+    }
 
         init();
     </script>
